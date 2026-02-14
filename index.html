@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KPC → UniCredit CSV</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, sans-serif;
+  background: #f5f5f7;
+  color: #1d1d1f;
+  min-height: 100dvh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 24px;
+}
+.card {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 2px 12px rgba(0,0,0,.08);
+  padding: 40px 32px;
+  max-width: 420px;
+  width: 100%;
+  text-align: center;
+}
+h1 {
+  font-size: 22px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.subtitle {
+  font-size: 13px;
+  color: #86868b;
+  margin-bottom: 28px;
+}
+.drop-zone {
+  border: 2px dashed #d2d2d7;
+  border-radius: 12px;
+  padding: 36px 20px;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+  margin-bottom: 20px;
+  position: relative;
+}
+.drop-zone.hover { border-color: #0071e3; background: #f0f7ff; }
+.drop-zone.has-file { border-color: #34c759; border-style: solid; }
+.drop-zone-label {
+  font-size: 15px;
+  color: #86868b;
+}
+.drop-zone.has-file .drop-zone-label { color: #1d1d1f; }
+.drop-zone input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+button {
+  width: 100%;
+  padding: 14px;
+  font-size: 16px;
+  font-weight: 600;
+  border: none;
+  border-radius: 10px;
+  background: #0071e3;
+  color: #fff;
+  cursor: pointer;
+  transition: opacity .15s;
+}
+button:disabled { background: #d2d2d7; cursor: default; }
+button:not(:disabled):active { opacity: .75; }
+.status {
+  margin-top: 16px;
+  font-size: 14px;
+  min-height: 20px;
+}
+.status.ok { color: #34c759; }
+.status.err { color: #ff3b30; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>KPC → UniCredit CSV</h1>
+  <p class="subtitle">Převod mezd z KPC do importu UniCredit</p>
+
+  <div class="drop-zone" id="dropZone">
+    <span class="drop-zone-label" id="dropLabel">Vyberte nebo přetáhněte .kpc soubor</span>
+    <input type="file" id="fileInput" accept=".kpc,.KPC">
+  </div>
+
+  <button id="convertBtn" disabled>Převést a stáhnout CSV</button>
+  <p class="status" id="status"></p>
+</div>
+
+<script>
+'use strict';
+
+/* ── cp1250 encoding table (byte 0x80–0xFF → Unicode) ── */
+const CP1250 = [
+  0x20AC,0x0081,0x201A,0x0083,0x201E,0x2026,0x2020,0x2021,
+  0x0088,0x2030,0x0160,0x2039,0x015A,0x0164,0x017D,0x0179,
+  0x0090,0x2018,0x2019,0x201C,0x201D,0x2022,0x2013,0x2014,
+  0x0098,0x2122,0x0161,0x203A,0x015B,0x0165,0x017E,0x017A,
+  0x00A0,0x02C7,0x02D8,0x0141,0x00A4,0x0104,0x00A6,0x00A7,
+  0x00A8,0x00A9,0x015E,0x00AB,0x00AC,0x00AD,0x00AE,0x017B,
+  0x00B0,0x00B1,0x02DB,0x0142,0x00B4,0x00B5,0x00B6,0x00B7,
+  0x00B8,0x0105,0x015F,0x00BB,0x013D,0x02DD,0x013E,0x017C,
+  0x0154,0x00C1,0x00C2,0x0102,0x00C4,0x0139,0x0106,0x00C7,
+  0x010C,0x00C9,0x0118,0x00CB,0x011A,0x00CD,0x00CE,0x010E,
+  0x0110,0x0143,0x0147,0x00D3,0x00D4,0x0150,0x00D6,0x00D7,
+  0x0158,0x016E,0x00DA,0x0170,0x00DC,0x00DD,0x0162,0x00DF,
+  0x0155,0x00E1,0x00E2,0x0103,0x00E4,0x013A,0x0107,0x00E7,
+  0x010D,0x00E9,0x0119,0x00EB,0x011B,0x00ED,0x00EE,0x010F,
+  0x0111,0x0144,0x0148,0x00F3,0x00F4,0x0151,0x00F6,0x00F7,
+  0x0159,0x016F,0x00FA,0x0171,0x00FC,0x00FD,0x0163,0x02D9,
+];
+
+const unicodeToCp1250 = new Map();
+for (let b = 0; b < 128; b++) unicodeToCp1250.set(b, b);
+for (let i = 0; i < CP1250.length; i++) unicodeToCp1250.set(CP1250[i], 0x80 + i);
+
+function encodeCP1250(str) {
+  const out = [];
+  for (let i = 0; i < str.length; i++) {
+    const cp = str.charCodeAt(i);
+    const b = unicodeToCp1250.get(cp);
+    out.push(b !== undefined ? b : 0x3F); // '?' fallback
+  }
+  return new Uint8Array(out);
+}
+
+/* ── Conversion utilities (ported from import.py) ── */
+
+function ddmmyyToYyyymmdd(s) {
+  s = s.trim();
+  if (!/^\d{6}$/.test(s)) return '';
+  return '20' + s.slice(4,6) + s.slice(2,4) + s.slice(0,2);
+}
+
+function halereToAmount(s) {
+  s = s.trim();
+  if (!/^\d+$/.test(s)) return '';
+  if (s.length === 1) s = '0' + s;
+  if (s.length === 2) return '0.' + s;
+  return s.slice(0, -2) + '.' + s.slice(-2);
+}
+
+function parseBankAndKs(bankks) {
+  bankks = bankks.trim();
+  if (/^\d{8}$/.test(bankks)) return [bankks.slice(0,4), bankks.slice(4)];
+  return ['', ''];
+}
+
+function zfill10(v) {
+  v = (v || '').trim();
+  if (v === '' || !/^\d+$/.test(v)) return v;
+  return v.padStart(10, '0');
+}
+
+function chunk35(text) {
+  const t = (text || '').trim();
+  const parts = [];
+  for (let i = 0; i < t.length; i += 35) parts.push(t.slice(i, i + 35));
+  while (parts.length < 4) parts.push('');
+  return parts.slice(0, 4);
+}
+
+function guessNameFromMessage(msg) {
+  let m = (msg || '').trim();
+  if (m.startsWith('AV:')) m = m.slice(3).trim();
+  m = m.split(',', 1)[0].trim();          // JS split limit doesn't work like Python
+  return m.slice(0, 35);
+}
+
+/* ── split(',', 1) helper matching Python behaviour ── */
+// JS "a,b,c".split(',',1) → ["a"]  vs  Python → ["a", "b,c"]
+// guessNameFromMessage only needs the part before the first comma, so [0] works fine.
+
+/* ── KPC parser ── */
+
+function readKpcItems(text) {
+  let dueDdmmyy = '';
+  let payerAccount = '';
+  const items = [];
+
+  for (let raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+
+    if (line.startsWith('2 ')) {
+      const parts = line.split(/\s+/).filter(Boolean);
+      if (parts.length >= 4) {
+        payerAccount = parts[1].trim();
+        dueDdmmyy = parts[3].trim();
+      }
+      continue;
+    }
+
+    if (line.startsWith('UHL1') || line.startsWith('1 ')
+        || line.startsWith('3') || line.startsWith('5')) {
+      continue;
+    }
+
+    const parts = line.split(/\s+/).filter(Boolean);
+    if (parts.length < 5) continue;
+
+    const benefRaw  = parts[0];
+    const amountHal = parts[1];
+    const vs        = parts[2];
+    const bankks    = parts[3];
+    const ss        = parts[4];
+    const msg       = parts.length > 5 ? parts.slice(5).join(' ') : '';
+
+    const [bankCode, ks4] = parseBankAndKs(bankks);
+
+    items.push({
+      date:            ddmmyyToYyyymmdd(dueDdmmyy),
+      amount:          halereToAmount(amountHal),
+      currency:        'CZK',
+      type:            '0',
+      payerAccount:    payerAccount,
+      benefAccountRaw: benefRaw,
+      benefBankCode:   bankCode,
+      benefName:       guessNameFromMessage(msg),
+      addr1: '', addr2: '', addr3: '',
+      ks10: (/^\d{4}$/.test(ks4)) ? ('000000' + ks4) : '',
+      vs10: zfill10(vs),
+      ss10: ss === '0' ? '' : zfill10(ss),
+      msg:  msg,
+    });
+  }
+  return items;
+}
+
+/* ── CSV writer ── */
+
+function csvField(s) {
+  s = String(s);
+  if (/[,"\r\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+
+function writeUnicreditCsv(items) {
+  const rows = [];
+  for (const it of items) {
+    const [m1,m2,m3,m4] = chunk35(it.msg);
+    rows.push([
+      it.date, it.amount, it.currency, it.type,
+      it.payerAccount, it.benefAccountRaw, it.benefBankCode,
+      it.benefName, it.addr1, it.addr2, it.addr3,
+      it.ks10, it.vs10, it.ss10,
+      m1, m2, m3, m4,
+    ].map(csvField).join(','));
+  }
+  return rows.join('\r\n') + '\r\n';
+}
+
+/* ── UI wiring ── */
+
+const dropZone  = document.getElementById('dropZone');
+const dropLabel = document.getElementById('dropLabel');
+const fileInput = document.getElementById('fileInput');
+const convertBtn= document.getElementById('convertBtn');
+const statusEl  = document.getElementById('status');
+
+let loadedBuffer = null;
+let loadedName   = '';
+
+function setStatus(msg, type) {
+  statusEl.textContent = msg;
+  statusEl.className = 'status' + (type ? ' ' + type : '');
+}
+
+function handleFile(file) {
+  if (!file) return;
+  loadedName = file.name;
+  const reader = new FileReader();
+  reader.onload = function() {
+    loadedBuffer = reader.result;
+    dropZone.classList.add('has-file');
+    dropLabel.textContent = loadedName;
+    convertBtn.disabled = false;
+    setStatus('');
+  };
+  reader.onerror = function() { setStatus('Chyba při čtení souboru', 'err'); };
+  reader.readAsArrayBuffer(file);
+}
+
+fileInput.addEventListener('change', function() { handleFile(this.files[0]); });
+
+dropZone.addEventListener('dragover', function(e) {
+  e.preventDefault(); dropZone.classList.add('hover');
+});
+dropZone.addEventListener('dragleave', function() {
+  dropZone.classList.remove('hover');
+});
+dropZone.addEventListener('drop', function(e) {
+  e.preventDefault(); dropZone.classList.remove('hover');
+  if (e.dataTransfer.files.length) {
+    fileInput.files = e.dataTransfer.files;
+    handleFile(e.dataTransfer.files[0]);
+  }
+});
+
+convertBtn.addEventListener('click', function() {
+  if (!loadedBuffer) return;
+  try {
+    const text = new TextDecoder('windows-1250').decode(loadedBuffer);
+    const items = readKpcItems(text);
+    if (items.length === 0) { setStatus('Soubor neobsahuje žádné platby', 'err'); return; }
+
+    const csvString = writeUnicreditCsv(items);
+    const bytes = encodeCP1250(csvString);
+    const blob = new Blob([bytes], { type: 'application/octet-stream' });
+
+    const outName = loadedName.replace(/\.[^.]+$/, '') + '.csv';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = outName;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function() { document.body.removeChild(a); URL.revokeObjectURL(a.href); }, 100);
+
+    setStatus('OK: ' + items.length + ' plateb → ' + outName, 'ok');
+  } catch (err) {
+    setStatus('Chyba: ' + err.message, 'err');
+  }
+});
+</script>
+</body>
+</html>
