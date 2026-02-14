@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#0071e3"/>
+  <text x="256" y="200" text-anchor="middle" font-family="-apple-system,Helvetica,sans-serif" font-size="120" font-weight="700" fill="#fff">KPC</text>
+  <path d="M176 280 l80 80 80-80" stroke="#fff" stroke-width="24" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <line x1="256" y1="270" x2="256" y2="360" stroke="#fff" stroke-width="24" stroke-linecap="round"/>
+  <text x="256" y="430" text-anchor="middle" font-family="-apple-system,Helvetica,sans-serif" font-size="72" font-weight="600" fill="rgba(255,255,255,.85)">CSV</text>
+</svg>

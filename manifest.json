@@ -1,0 +1,17 @@
+{
+  "name": "KPC → UniCredit CSV",
+  "short_name": "KPC→CSV",
+  "description": "Převod mezd z KPC do importu UniCredit",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#f5f5f7",
+  "theme_color": "#0071e3",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

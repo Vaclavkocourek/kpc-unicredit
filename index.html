@@ -11,6 +11,12 @@
   gtag('config', 'G-K5W3WPCNL6');
 </script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0071e3">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
 <title>KPC → UniCredit CSV</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -336,6 +342,10 @@ convertBtn.addEventListener('click', function() {
     setStatus('Chyba: ' + err.message, 'err');
   }
 });
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js');
+}
 </script>
 </body>
 </html>
