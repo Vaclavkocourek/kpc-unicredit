@@ -1,4 +1,4 @@
-const CACHE = 'kpc-v1';
+const CACHE = 'kpc-v2';
 const ASSETS = ['./', 'index.html', 'manifest.json', 'icon.svg'];
 
 self.addEventListener('install', e => {
