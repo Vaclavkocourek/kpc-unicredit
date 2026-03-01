@@ -27,7 +27,7 @@ body {
   min-height: 100dvh;
   display: flex;
   justify-content: center;
-  align-items: center;
+  align-items: flex-start;
   padding: 24px;
 }
 .card {
@@ -35,7 +35,8 @@ body {
   border-radius: 16px;
   box-shadow: 0 2px 12px rgba(0,0,0,.08);
   padding: 40px 32px;
-  max-width: 420px;
+  margin: auto 0;
+  max-width: 480px;
   width: 100%;
   text-align: center;
 }
@@ -85,6 +86,18 @@ button {
 }
 button:disabled { background: #d2d2d7; cursor: default; }
 button:not(:disabled):active { opacity: .75; }
+#downloadBtn {
+  margin-top: 16px;
+  background: #34c759;
+}
+.reset-btn {
+  margin-top: 8px;
+  background: transparent;
+  color: #0071e3;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 10px;
+}
 .status {
   margin-top: 16px;
   font-size: 14px;
@@ -92,6 +105,67 @@ button:not(:disabled):active { opacity: .75; }
 }
 .status.ok { color: #34c759; }
 .status.err { color: #ff3b30; }
+.results {
+  margin-top: 20px;
+  text-align: left;
+  display: none;
+}
+.results.visible { display: block; }
+.results-header {
+  font-size: 13px;
+  font-weight: 600;
+  color: #86868b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+.payment-list {
+  list-style: none;
+  border-top: 1px solid #e5e5ea;
+}
+.payment-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 10px 0;
+  border-bottom: 1px solid #e5e5ea;
+  gap: 12px;
+}
+.payment-num {
+  font-size: 13px;
+  color: #86868b;
+  min-width: 1.5em;
+  text-align: right;
+  flex-shrink: 0;
+}
+.payment-name {
+  flex: 1;
+  font-size: 14px;
+  color: #1d1d1f;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.payment-amount {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1d1d1f;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.payment-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 12px 0 0;
+  font-weight: 600;
+  font-size: 15px;
+}
+.payment-total .payment-amount {
+  font-size: 15px;
+  color: #0071e3;
+}
 </style>
 </head>
 <body>
@@ -104,8 +178,18 @@ button:not(:disabled):active { opacity: .75; }
     <input type="file" id="fileInput" accept=".kpc,.KPC">
   </div>
 
-  <button id="convertBtn" disabled>Převést a stáhnout CSV</button>
+  <button id="convertBtn" disabled>Převést</button>
   <p class="status" id="status"></p>
+  <div class="results" id="results">
+    <p class="results-header" id="resultsHeader">Platby</p>
+    <ul class="payment-list" id="paymentList"></ul>
+    <div class="payment-total">
+      <span>Celkem</span>
+      <span class="payment-amount" id="totalAmount"></span>
+    </div>
+    <button id="downloadBtn">Stáhnout CSV</button>
+    <button id="resetBtn" class="reset-btn">Zpracovat další soubor</button>
+  </div>
 </div>
 
 <script>
@@ -213,7 +297,7 @@ function readKpcItems(text) {
     }
 
     if (line.startsWith('UHL1') || line.startsWith('1 ')
-        || line.startsWith('3') || line.startsWith('5')) {
+        || line.startsWith('3 ') || line.startsWith('5 ')) {
       continue;
     }
 
@@ -279,8 +363,49 @@ const fileInput = document.getElementById('fileInput');
 const convertBtn= document.getElementById('convertBtn');
 const statusEl  = document.getElementById('status');
 
+const resultsEl     = document.getElementById('results');
+const resultsHeader = document.getElementById('resultsHeader');
+const paymentList   = document.getElementById('paymentList');
+const totalAmount   = document.getElementById('totalAmount');
+const downloadBtn = document.getElementById('downloadBtn');
+const resetBtn    = document.getElementById('resetBtn');
+
 let loadedBuffer = null;
 let loadedName   = '';
+let csvBlobUrl   = null;
+let csvOutName   = '';
+
+function formatCZK(amount) {
+  const n = parseFloat(amount);
+  if (isNaN(n)) return amount;
+  return n.toLocaleString('cs-CZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' CZK';
+}
+
+function showResults(items) {
+  paymentList.innerHTML = '';
+  let total = 0;
+  items.forEach(function(it, i) {
+    const li = document.createElement('li');
+    const num = document.createElement('span');
+    num.className = 'payment-num';
+    num.textContent = (i + 1) + '.';
+    const name = document.createElement('span');
+    name.className = 'payment-name';
+    name.textContent = (it.benefName || it.benefAccountRaw).split(' ')[0];
+    const amt = document.createElement('span');
+    amt.className = 'payment-amount';
+    const val = parseFloat(it.amount) || 0;
+    total += val;
+    amt.textContent = formatCZK(it.amount);
+    li.appendChild(num);
+    li.appendChild(name);
+    li.appendChild(amt);
+    paymentList.appendChild(li);
+  });
+  resultsHeader.textContent = items.length + ' plateb';
+  totalAmount.textContent = formatCZK(total.toFixed(2));
+  resultsEl.classList.add('visible');
+}
 
 function setStatus(msg, type) {
   statusEl.textContent = msg;
@@ -323,24 +448,59 @@ convertBtn.addEventListener('click', function() {
   try {
     const text = new TextDecoder('windows-1250').decode(loadedBuffer);
     const items = readKpcItems(text);
-    if (items.length === 0) { setStatus('Soubor neobsahuje žádné platby', 'err'); return; }
+    if (items.length === 0) { setStatus('Soubor neobsahuje žádné platby', 'err'); resultsEl.classList.remove('visible'); return; }
 
     const csvString = writeUnicreditCsv(items);
     const bytes = encodeCP1250(csvString);
     const blob = new Blob([bytes], { type: 'application/octet-stream' });
 
-    const outName = loadedName.replace(/\.[^.]+$/, '') + '.csv';
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = outName;
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(function() { document.body.removeChild(a); URL.revokeObjectURL(a.href); }, 100);
+    const mesice = ['Leden','Unor','Brezen','Duben','Kveten','Cerven',
+                     'Cervenec','Srpen','Zari','Rijen','Listopad','Prosinec'];
+    const d = items[0].date || '';
+    const rok = d.slice(0,4) || new Date().getFullYear();
+    const mesic = mesice[parseInt(d.slice(4,6), 10) - 1] || '';
+    csvOutName = 'Mzdy_' + mesic + '_' + rok + '.csv';
 
-    setStatus('OK: ' + items.length + ' plateb → ' + outName, 'ok');
+    if (csvBlobUrl) URL.revokeObjectURL(csvBlobUrl);
+    csvBlobUrl = URL.createObjectURL(blob);
+
+    downloadBtn.textContent = 'Stáhnout ' + csvOutName;
+    setStatus('OK: ' + items.length + ' plateb', 'ok');
+    showResults(items);
+
+    dropZone.style.display = 'none';
+    convertBtn.style.display = 'none';
+    statusEl.style.display = 'none';
   } catch (err) {
     setStatus('Chyba: ' + err.message, 'err');
+    resultsEl.classList.remove('visible');
   }
+});
+
+downloadBtn.addEventListener('click', function() {
+  if (!csvBlobUrl) return;
+  const a = document.createElement('a');
+  a.href = csvBlobUrl;
+  a.download = csvOutName;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function() { document.body.removeChild(a); }, 100);
+});
+
+resetBtn.addEventListener('click', function() {
+  if (csvBlobUrl) { URL.revokeObjectURL(csvBlobUrl); csvBlobUrl = null; }
+  loadedBuffer = null;
+  loadedName = '';
+  csvOutName = '';
+  fileInput.value = '';
+  dropZone.classList.remove('has-file');
+  dropLabel.textContent = 'Vyberte nebo přetáhněte .kpc soubor';
+  dropZone.style.display = '';
+  convertBtn.style.display = '';
+  convertBtn.disabled = true;
+  statusEl.style.display = '';
+  resultsEl.classList.remove('visible');
+  setStatus('');
 });
 
 if ('serviceWorker' in navigator) {
